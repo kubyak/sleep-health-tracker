@@ -80,6 +80,14 @@ class RecommendationController extends Controller
                     'priority' => 'medium',
                     'category' => 'sleep'
                 ];
+            } elseif ($avgSleepDuration > 9) {
+                $personalized[] = [
+                    'type' => 'sleep_duration',
+                    'title' => 'Обратите внимание на длительность сна',
+                    'message' => 'Вы спите в среднем ' . round($avgSleepDuration, 1) . ' часов. Длительный сон может быть признаком усталости.',
+                    'priority' => 'low',
+                    'category' => 'sleep'
+                ];
             }
         }
 
@@ -192,7 +200,48 @@ class RecommendationController extends Controller
             ->first();
 
         if (!$tip) {
-            return response()->json(['message' => 'Нет доступных рекомендаций']);
+            // Fallback советы
+            $fallbackTips = [
+                [
+                    'title' => 'Регулярные физические упражнения',
+                    'description' => 'Старайтесь уделять хотя бы 30 минут в день физической активности для поддержания здоровья',
+                    'category' => 'Физическая активность',
+                    'icon' => 'fas fa-running'
+                ],
+                [
+                    'title' => 'Качественный сон',
+                    'description' => 'Спите 7-9 часов в сутки для полноценного восстановления организма',
+                    'category' => 'Сон',
+                    'icon' => 'fas fa-bed'
+                ],
+                [
+                    'title' => 'Сбалансированное питание',
+                    'description' => 'Включайте в рацион больше овощей, фруктов и цельнозерновых продуктов',
+                    'category' => 'Питание',
+                    'icon' => 'fas fa-apple-alt'
+                ],
+                [
+                    'title' => 'Пейте воду',
+                    'description' => 'Выпивайте 2 литра воды в день для поддержания водного баланса',
+                    'category' => 'Питание',
+                    'icon' => 'fas fa-tint'
+                ],
+                [
+                    'title' => 'Медитация и отдых',
+                    'description' => 'Найдите время для расслабления и медитации чтобы снизить стресс',
+                    'category' => 'Ментальное здоровье',
+                    'icon' => 'fas fa-spa'
+                ]
+            ];
+
+            $randomTip = $fallbackTips[array_rand($fallbackTips)];
+
+            return response()->json([
+                'title' => $randomTip['title'],
+                'description' => $randomTip['description'],
+                'category' => $randomTip['category'],
+                'icon' => $randomTip['icon']
+            ]);
         }
 
         return response()->json([

@@ -103,11 +103,7 @@
                         </div>
                         <small class="text-muted">Прогресс к цели 10,000 шагов</small>
 
-                        <div class="d-grid gap-2 mt-3">
-                            <a href="{{ route('activity.show', $activity) }}" class="btn btn-outline-success btn-sm">
-                                <i class="fas fa-eye me-1"></i>Подробнее
-                            </a>
-                        </div>
+                        
                     </div>
                 </div>
             @empty

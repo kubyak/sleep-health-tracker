@@ -167,46 +167,222 @@ class DashboardController extends Controller
 
         if ($period === 'month') {
             $startDate = now()->subDays(30)->format('Y-m-d');
-            $groupFormat = 'Y-m-d';
+            $groupFormat = 'd.m';
         } else {
             $startDate = now()->subDays(6)->format('Y-m-d');
-            $groupFormat = 'Y-m-d';
+            $groupFormat = 'd.m';
         }
 
-        // Данные сна для графика
+        // Данные сна для графика - исправленный формат
         $sleepData = Sleep::where('user_id', $user->id)
             ->where('date', '>=', $startDate)
             ->orderBy('date')
-            ->get()
-            ->groupBy(function($item) use ($groupFormat) {
-                return Carbon::parse($item->date)->format($groupFormat);
-            })
-            ->map(function($group) {
-                return [
-                    'quality' => round($group->avg('sleep_quality')),
-                    'duration' => round($group->avg('sleep_duration') / 60, 1)
-                ];
-            });
+            ->get();
 
-        // Данные активности для графика
+        $sleepLabels = [];
+        $sleepQuality = [];
+        $sleepDuration = [];
+
+        foreach ($sleepData as $record) {
+            $sleepLabels[] = Carbon::parse($record->date)->format($groupFormat);
+            $sleepQuality[] = $record->sleep_quality;
+            $sleepDuration[] = round($record->sleep_duration / 60, 1);
+        }
+
+        // Данные активности для графика - исправленный формат
         $activityData = Activity::where('user_id', $user->id)
             ->where('date', '>=', $startDate)
             ->orderBy('date')
+            ->get();
+
+        $activityLabels = [];
+        $activitySteps = [];
+        $activityCalories = [];
+
+        foreach ($activityData as $record) {
+            $activityLabels[] = Carbon::parse($record->date)->format($groupFormat);
+            $activitySteps[] = $record->steps;
+            $activityCalories[] = $record->calories_burned;
+        }
+
+        return response()->json([
+            'sleep' => [
+                'labels' => $sleepLabels,
+                'quality' => $sleepQuality,
+                'duration' => $sleepDuration
+            ],
+            'activity' => [
+                'labels' => $activityLabels,
+                'steps' => $activitySteps,
+                'calories' => $activityCalories
+            ]
+        ]);
+    }
+
+    // ДОБАВЛЕННЫЕ МЕТОДЫ:
+
+    public function getQuickStats()
+    {
+        $user = auth()->user();
+
+        $todaySleep = Sleep::where('user_id', $user->id)
+            ->whereDate('date', today())
+            ->first();
+
+        $todayActivity = Activity::where('user_id', $user->id)
+            ->whereDate('date', today())
+            ->first();
+
+        $weeklySleepAvg = Sleep::where('user_id', $user->id)
+            ->where('date', '>=', now()->subDays(7))
+            ->avg('sleep_quality');
+
+        $weeklyStepsAvg = Activity::where('user_id', $user->id)
+            ->where('date', '>=', now()->subDays(7))
+            ->avg('steps');
+
+        return response()->json([
+            'today_sleep_quality' => $todaySleep ? $todaySleep->sleep_quality : 0,
+            'today_sleep_duration' => $todaySleep ? round($todaySleep->sleep_duration / 60, 1) : 0,
+            'today_steps' => $todayActivity ? $todayActivity->steps : 0,
+            'today_calories' => $todayActivity ? $todayActivity->calories_burned : 0,
+            'weekly_sleep_avg' => round($weeklySleepAvg ?? 0),
+            'weekly_steps_avg' => round($weeklyStepsAvg ?? 0)
+        ]);
+    }
+
+    public function getRecentActivity()
+    {
+        $user = auth()->user();
+
+        $recentSleep = Sleep::where('user_id', $user->id)
+            ->orderBy('date', 'desc')
+            ->take(5)
             ->get()
-            ->groupBy(function($item) use ($groupFormat) {
-                return Carbon::parse($item->date)->format($groupFormat);
-            })
-            ->map(function($group) {
+            ->map(function($sleep) {
                 return [
-                    'steps' => round($group->avg('steps')),
-                    'calories' => round($group->avg('calories_burned'))
+                    'date' => $sleep->date->format('d.m.Y'),
+                    'duration' => round($sleep->sleep_duration / 60, 1),
+                    'quality' => $sleep->sleep_quality,
+                    'time' => Carbon::parse($sleep->bedtime)->format('H:i') . ' - ' . Carbon::parse($sleep->wakeup_time)->format('H:i')
+                ];
+            });
+
+        $recentActivity = Activity::where('user_id', $user->id)
+            ->orderBy('date', 'desc')
+            ->take(5)
+            ->get()
+            ->map(function($activity) {
+                return [
+                    'date' => $activity->date->format('d.m.Y'),
+                    'steps' => number_format($activity->steps),
+                    'calories' => $activity->calories_burned,
+                    'active_minutes' => $activity->active_minutes
                 ];
             });
 
         return response()->json([
-            'sleep' => $sleepData,
-            'activity' => $activityData,
-            'labels' => array_keys($sleepData->toArray())
+            'recent_sleep' => $recentSleep,
+            'recent_activity' => $recentActivity
+        ]);
+    }
+
+    public function getHealthGoalsProgress()
+    {
+        $user = auth()->user();
+        $healthData = UserHealthData::where('user_id', $user->id)->first();
+
+        if (!$healthData) {
+            return response()->json(['error' => 'Health data not found'], 404);
+        }
+
+        $todaySleep = Sleep::where('user_id', $user->id)
+            ->whereDate('date', today())
+            ->first();
+
+        $todayActivity = Activity::where('user_id', $user->id)
+            ->whereDate('date', today())
+            ->first();
+
+        $sleepProgress = $todaySleep ? min(100, ($todaySleep->sleep_duration / $healthData->sleep_goal) * 100) : 0;
+        $stepsProgress = $todayActivity ? min(100, ($todayActivity->steps / $healthData->steps_goal) * 100) : 0;
+        $caloriesProgress = $todayActivity ? min(100, ($todayActivity->calories_burned / $healthData->calories_goal) * 100) : 0;
+        $activeMinutesProgress = $todayActivity ? min(100, ($todayActivity->active_minutes / $healthData->active_minutes_goal) * 100) : 0;
+
+        return response()->json([
+            'sleep' => [
+                'current' => $todaySleep ? round($todaySleep->sleep_duration / 60, 1) : 0,
+                'goal' => round($healthData->sleep_goal / 60, 1),
+                'progress' => round($sleepProgress)
+            ],
+            'steps' => [
+                'current' => $todayActivity ? $todayActivity->steps : 0,
+                'goal' => $healthData->steps_goal,
+                'progress' => round($stepsProgress)
+            ],
+            'calories' => [
+                'current' => $todayActivity ? $todayActivity->calories_burned : 0,
+                'goal' => $healthData->calories_goal,
+                'progress' => round($caloriesProgress)
+            ],
+            'active_minutes' => [
+                'current' => $todayActivity ? $todayActivity->active_minutes : 0,
+                'goal' => $healthData->active_minutes_goal,
+                'progress' => round($activeMinutesProgress)
+            ]
+        ]);
+    }
+
+    public function getWeeklySummary()
+    {
+        $user = auth()->user();
+
+        $weekStart = now()->startOfWeek();
+        $weekEnd = now()->endOfWeek();
+
+        $weeklySleep = Sleep::where('user_id', $user->id)
+            ->whereBetween('date', [$weekStart, $weekEnd])
+            ->get();
+
+        $weeklyActivity = Activity::where('user_id', $user->id)
+            ->whereBetween('date', [$weekStart, $weekEnd])
+            ->get();
+
+        $totalSleepHours = $weeklySleep->sum('sleep_duration') / 60;
+        $avgSleepQuality = $weeklySleep->avg('sleep_quality');
+        $totalSteps = $weeklyActivity->sum('steps');
+        $totalCalories = $weeklyActivity->sum('calories_burned');
+        $totalActiveMinutes = $weeklyActivity->sum('active_minutes');
+
+        $healthData = UserHealthData::where('user_id', $user->id)->first();
+
+        $sleepGoal = $healthData ? ($healthData->sleep_goal / 60) * 7 : 56; // 8 часов * 7 дней
+        $stepsGoal = $healthData ? $healthData->steps_goal * 7 : 70000; // 10k * 7 дней
+        $caloriesGoal = $healthData ? $healthData->calories_goal * 7 : 3500; // 500 * 7 дней
+        $activeMinutesGoal = $healthData ? $healthData->active_minutes_goal * 7 : 210; // 30 * 7 дней
+
+        return response()->json([
+            'sleep' => [
+                'total_hours' => round($totalSleepHours, 1),
+                'avg_quality' => round($avgSleepQuality ?? 0),
+                'goal' => $sleepGoal,
+                'completion' => min(100, ($totalSleepHours / $sleepGoal) * 100)
+            ],
+            'activity' => [
+                'total_steps' => $totalSteps,
+                'total_calories' => $totalCalories,
+                'total_active_minutes' => $totalActiveMinutes,
+                'steps_goal' => $stepsGoal,
+                'calories_goal' => $caloriesGoal,
+                'active_minutes_goal' => $activeMinutesGoal,
+                'steps_completion' => min(100, ($totalSteps / $stepsGoal) * 100),
+                'calories_completion' => min(100, ($totalCalories / $caloriesGoal) * 100),
+                'active_minutes_completion' => min(100, ($totalActiveMinutes / $activeMinutesGoal) * 100)
+            ],
+            'days_recorded' => [
+                'sleep' => $weeklySleep->count(),
+                'activity' => $weeklyActivity->count()
+            ]
         ]);
     }
 }

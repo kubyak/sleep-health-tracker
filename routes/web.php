@@ -121,3 +121,55 @@ Route::prefix('fitness')->name('fitness.')->group(function () {
     // Settings
     Route::put('/devices/{device}/settings', [FitnessDeviceController::class, 'updateSyncSettings'])->name('devices.settings');
 });
+
+
+
+
+// Временный маршрут для очистки дубликатов - УДАЛИТЕ ПОСЛЕ ИСПОЛЬЗОВАНИЯ!
+Route::get('/cleanup-duplicates', function () {
+    $users = \App\Models\User::all();
+    $deletedCount = 0;
+
+    foreach ($users as $user) {
+        // Найти все даты с дубликатами для этого пользователя
+        $duplicateDates = \App\Models\Sleep::where('user_id', $user->id)
+            ->select('date', \Illuminate\Support\Facades\DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->having('count', '>', 1)
+            ->pluck('date');
+
+        foreach ($duplicateDates as $date) {
+            // Найти все записи для этой даты
+            $records = \App\Models\Sleep::where('user_id', $user->id)
+                ->where('date', $date)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            // Оставить первую (самую новую) запись, удалить остальные
+            if ($records->count() > 1) {
+                $recordsToDelete = $records->slice(1);
+
+                foreach ($recordsToDelete as $record) {
+                    $record->delete();
+                    $deletedCount++;
+                }
+
+                echo "Удалено дубликатов для пользователя {$user->name} на дату {$date}: " . $recordsToDelete->count() . "<br>";
+            }
+        }
+    }
+
+    return "Готово! Удалено {$deletedCount} дублирующихся записей. Теперь можно запустить миграции.";
+});
+
+
+Route::resource('sleep', SleepController::class)->middleware('auth');
+
+
+// Рекомендации
+Route::prefix('recommendations')->group(function () {
+    Route::get('/', [RecommendationController::class, 'index'])->name('recommendations.index');
+    Route::get('/{category}', [RecommendationController::class, 'show'])->name('recommendations.category');
+    Route::get('/daily-tip/tip', [RecommendationController::class, 'getDailyTip'])->name('recommendations.daily.tip');
+    Route::post('/{recommendation}/read', [RecommendationController::class, 'markAsRead'])->name('recommendations.mark.read');
+});

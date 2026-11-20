@@ -28,8 +28,8 @@
                             @foreach($personalizedRecommendations as $recommendation)
                                 <div class="col-md-6 mb-3">
                                     <div class="card border-0 shadow-sm h-100
-                            {{ $recommendation['priority'] == 'high' ? 'border-danger' :
-                               ($recommendation['priority'] == 'medium' ? 'border-warning' : 'border-info') }}">
+                            {{ $recommendation['priority'] == 'high' ? 'border-start border-3 border-danger' :
+                               ($recommendation['priority'] == 'medium' ? 'border-start border-3 border-warning' : 'border-start border-3 border-info') }}">
                                         <div class="card-body">
                                             <div class="d-flex align-items-start">
                                                 <div class="flex-shrink-0">
@@ -76,6 +76,9 @@
                                 @case('mental_health')
                                     <i class="fas fa-spa text-info me-2"></i>Ментальное здоровье
                                     @break
+                                @case('general')
+                                    <i class="fas fa-heart text-danger me-2"></i>Общие рекомендации
+                                    @break
                                 @default
                                     <i class="fas fa-star text-secondary me-2"></i>{{ ucfirst($category) }}
                             @endswitch
@@ -84,7 +87,7 @@
                         <div class="row">
                             @foreach($items as $recommendation)
                                 <div class="col-md-6 mb-4">
-                                    <div class="card h-100 border-0 shadow-sm hover-lift">
+                                    <div class="card h-100 border-0 shadow-sm">
                                         <div class="card-body">
                                             <div class="d-flex align-items-start mb-3">
                                                 <div class="flex-shrink-0">
@@ -177,60 +180,88 @@
             </div>
         </div>
     </div>
+@endsection
 
-    @section('scripts')
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                // Кнопка случайного совета
-                const dailyTipBtn = document.getElementById('dailyTipBtn');
-                const dailyTipModal = new bootstrap.Modal(document.getElementById('dailyTipModal'));
-                const dailyTipContent = document.getElementById('dailyTipContent');
+@section('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Кнопка случайного совета
+            const dailyTipBtn = document.getElementById('dailyTipBtn');
+            const dailyTipModal = new bootstrap.Modal(document.getElementById('dailyTipModal'));
+            const dailyTipContent = document.getElementById('dailyTipContent');
 
-                dailyTipBtn.addEventListener('click', function() {
-                    dailyTipModal.show();
-
-                    // Загружаем случайный совет
-                    axios.get('{{ route("recommendations.daily.tip") }}')
-                        .then(response => {
-                            dailyTipContent.innerHTML = `
-                    <div class="text-center">
-                        <i class="${response.data.icon} fa-3x text-primary mb-3"></i>
-                        <h5>${response.data.title}</h5>
-                        <p class="text-muted">${response.data.description}</p>
-                        <span class="badge bg-secondary">${response.data.category}</span>
+            dailyTipBtn.addEventListener('click', function() {
+                dailyTipModal.show();
+                dailyTipContent.innerHTML = `
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
                     </div>
-                `;
+                    <p class="mt-2">Загружаем совет...</p>
+                </div>
+            `;
+
+                // Загружаем случайный совет
+                fetch('{{ route("recommendations.daily.tip") }}')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        dailyTipContent.innerHTML = `
+                        <div class="text-center">
+                            <i class="${data.icon} fa-3x text-primary mb-3"></i>
+                            <h5>${data.title}</h5>
+                            <p class="text-muted">${data.description}</p>
+                            <span class="badge bg-secondary">${data.category}</span>
+                        </div>
+                    `;
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        dailyTipContent.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Не удалось загрузить совет. Попробуйте позже.
+                        </div>
+                    `;
+                    });
+            });
+
+            // Отметка как прочитанного
+            document.querySelectorAll('.mark-read-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const recommendationId = this.dataset.id;
+                    const card = this.closest('.card');
+
+                    fetch(`/recommendations/${recommendationId}/read`, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Content-Type': 'application/json',
+                        },
+                    })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            card.style.opacity = '0.6';
+                            this.innerHTML = '<i class="fas fa-check me-1"></i>Прочитано';
+                            this.classList.remove('btn-outline-primary');
+                            this.classList.add('btn-outline-secondary');
+                            this.disabled = true;
                         })
                         .catch(error => {
-                            dailyTipContent.innerHTML = `
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        Не удалось загрузить совет. Попробуйте позже.
-                    </div>
-                `;
+                            console.error('Error:', error);
+                            alert('Ошибка при отметке рекомендации');
                         });
                 });
-
-                // Отметка как прочитанного
-                document.querySelectorAll('.mark-read-btn').forEach(button => {
-                    button.addEventListener('click', function() {
-                        const recommendationId = this.dataset.id;
-                        const card = this.closest('.card');
-
-                        axios.post(`/recommendations/${recommendationId}/read`)
-                            .then(response => {
-                                card.style.opacity = '0.6';
-                                this.innerHTML = '<i class="fas fa-check me-1"></i>Прочитано';
-                                this.classList.remove('btn-outline-primary');
-                                this.classList.add('btn-outline-secondary');
-                                this.disabled = true;
-                            })
-                            .catch(error => {
-                                alert('Ошибка при отметке рекомендации');
-                            });
-                    });
-                });
             });
-        </script>
-    @endsection
+        });
+    </script>
 @endsection

@@ -251,9 +251,10 @@
 <nav class="navbar navbar-expand-lg navbar-dark nav-glass">
     <div class="container">
         <a class="navbar-brand d-flex align-items-center" href="{{ route('dashboard') }}">
-            <i class="fas fa-moon me-2"></i>
-            <span>SleepTracker</span>
-        </a>
+    <img src="/public/images/лого.png"  class="me-2" style="height: 50px; width: auto;">
+    <span>SleepTracker</span>
+</a>
+
 
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
             <span class="navbar-toggler-icon"></span>
@@ -280,7 +281,7 @@
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center" href="{{ route('recommendations') }}">
+                    <a class="nav-link d-flex align-items-center" href="{{ route('recommendations.index') }}">
                         <i class="fas fa-heart me-2"></i>
                         <span>Рекомендации</span>
                     </a>
@@ -371,6 +372,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 @yield('scripts')
 </body>
 </html>

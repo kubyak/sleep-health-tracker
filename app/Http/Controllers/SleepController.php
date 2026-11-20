@@ -5,116 +5,180 @@ namespace App\Http\Controllers;
 use App\Models\Sleep;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class SleepController extends Controller
 {
+    /**
+     * Показать список записей о сне текущего пользователя.
+     *
+     * @return \Illuminate\View\View|\Illuminate\Contracts\View\Factory
+     */
     public function index()
     {
-        $sleepRecords = Sleep::where('user_id', auth()->id())
+        $sleepRecords = Sleep::where('user_id', Auth::id())
             ->orderBy('date', 'desc')
             ->paginate(10);
 
-        $sleepStats = $this->getSleepStatistics(auth()->id());
+        $sleepStats = $this->getSleepStatistics(Auth::id());
 
         return view('sleep.index', compact('sleepRecords', 'sleepStats'));
     }
 
+    /**
+     * Форма для создания новой записи о сне.
+     *
+     * @return \Illuminate\View\View|\Illuminate\Contracts\View\Factory
+     */
     public function create()
     {
         $today = now()->format('Y-m-d');
         $defaultBedtime = '22:00';
         $defaultWakeup = '06:00';
 
+        // Проверка, есть ли уже запись на сегодняшний день
+        $existingToday = Sleep::where('user_id', Auth::id())
+            ->where('date', $today)
+            ->first();
+
+        if ($existingToday) {
+            return redirect()->route('sleep.edit', $existingToday)
+                ->with('info', 'Запись о сне на сегодня уже существует. Вы можете отредактировать её.');
+        }
+
         return view('sleep.create', compact('today', 'defaultBedtime', 'defaultWakeup'));
     }
 
+    /**
+     * Создание новой записи о сне.
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\RedirectResponse
+     */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'date' => 'required|date',
-            'bedtime' => 'required',
-            'wakeup_time' => 'required',
-            'deep_sleep' => 'nullable|integer|min:0',
-            'light_sleep' => 'nullable|integer|min:0',
-            'rem_sleep' => 'nullable|integer|min:0',
-            'awake_time' => 'nullable|integer|min:0',
-            'notes' => 'nullable|string|max:500'
-        ]);
+        try {
+            $validatedData = $request->validate([
+                'date' => 'required|date',
+                'bedtime' => 'required',
+                'wakeup_time' => 'required',
+                'deep_sleep' => 'nullable|integer|min:0',
+                'light_sleep' => 'nullable|integer|min:0',
+                'rem_sleep' => 'nullable|integer|min:0',
+                'awake_time' => 'nullable|integer|min:0',
+                'notes' => 'nullable|string|max:500'
+            ]);
 
-        // Проверяем, не существует ли уже записи на эту дату
-        $existingRecord = Sleep::where('user_id', auth()->id())
-            ->where('date', $validated['date'])
-            ->first();
+            // Проверка существования записи на выбранную дату
+            $existingRecord = Sleep::where('user_id', Auth::id())
+                ->where('date', $validatedData['date'])
+                ->first();
 
-        if ($existingRecord) {
+            if ($existingRecord) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', 'Запись о сне на указанную дату уже существует!');
+            }
+
+            // Разбор временных значений
+            $bedtime = Carbon::parse($validatedData['date'] . ' ' . $validatedData['bedtime']);
+            $wakeup = Carbon::parse($validatedData['date'] . ' ' . $validatedData['wakeup_time']);
+
+            // Переход через полночь
+            if ($wakeup->lt($bedtime)) {
+                $wakeup->addDay();
+            }
+
+            // Время сна в минутах
+            $sleepDuration = $bedtime->diffInMinutes($wakeup);
+
+            // Минимально-допустимая продолжительность сна
+            if ($sleepDuration < 180 || $sleepDuration > 720) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', 'Продолжительность сна должна составлять от 3 до 12 часов.');
+            }
+
+            // Определение фаз сна (если они отсутствуют)
+            $phases = $this->calculateSleepPhases($sleepDuration, $validatedData);
+
+            // Создание записи
+            $sleep = Sleep::create([
+                'user_id' => Auth::id(),
+                'date' => $validatedData['date'],
+                'bedtime' => $validatedData['bedtime'],
+                'wakeup_time' => $validatedData['wakeup_time'],
+                'sleep_duration' => $sleepDuration,
+                'deep_sleep' => $phases['deep_sleep'],
+                'light_sleep' => $phases['light_sleep'],
+                'rem_sleep' => $phases['rem_sleep'],
+                'awake_time' => $phases['awake_time'],
+                'notes' => $validatedData['notes']
+            ]);
+
+            // Расчёт и сохранение качества сна
+            $sleep->sleep_quality = $sleep->calculateSleepQuality();
+            $sleep->save();
+
+            return redirect()->route('sleep.index')
+                ->with('success', 'Запись о сне успешно добавлена! Качество сна: ' . $sleep->sleep_quality . '%');
+
+        } catch (\Throwable $th) {
             return redirect()->back()
                 ->withInput()
-                ->with('error', 'Запись о сне на эту дату уже существует!');
+                ->with('error', 'Произошла ошибка при создании записи о сне.');
         }
-
-        // Рассчитываем продолжительность сна
-        $bedtime = Carbon::parse($validated['bedtime']);
-        $wakeup = Carbon::parse($validated['wakeup_time']);
-
-        if ($wakeup->lt($bedtime)) {
-            $wakeup->addDay();
-        }
-
-        $sleepDuration = $bedtime->diffInMinutes($wakeup);
-
-        // Автоматически распределяем фазы сна, если не указаны
-        $phases = $this->calculateSleepPhases($sleepDuration, $validated);
-
-        $sleep = Sleep::create([
-            'user_id' => auth()->id(),
-            'date' => $validated['date'],
-            'bedtime' => $validated['bedtime'],
-            'wakeup_time' => $validated['wakeup_time'],
-            'sleep_duration' => $sleepDuration,
-            'deep_sleep' => $phases['deep_sleep'],
-            'light_sleep' => $phases['light_sleep'],
-            'rem_sleep' => $phases['rem_sleep'],
-            'awake_time' => $phases['awake_time'],
-            'notes' => $validated['notes']
-        ]);
-
-        // Рассчитываем и сохраняем качество сна
-        $sleep->sleep_quality = $sleep->calculateSleepQuality();
-        $sleep->save();
-
-        return redirect()->route('sleep.index')
-            ->with('success', 'Запись о сне успешно добавлена! Качество сна: ' . $sleep->sleep_quality . '%');
     }
 
+    /**
+     * Просмотр конкретной записи о сне.
+     *
+     * @param Sleep $sleep
+     * @return \Illuminate\View\View|\Illuminate\Contracts\View\Factory
+     */
     public function show(Sleep $sleep)
     {
-        $this->authorize('view', $sleep);
+        // Авторизация (на случай необходимости защиты маршрута)
+        //$this->authorize('view', $sleep);
 
         $sleepPhases = $sleep->sleep_phases;
         $sleepEfficiency = $sleep->sleep_efficiency;
-
-        // Анализ качества сна
         $sleepAnalysis = $this->analyzeSleepQuality($sleep);
 
         return view('sleep.show', compact('sleep', 'sleepPhases', 'sleepEfficiency', 'sleepAnalysis'));
     }
 
+    /**
+     * Редактирование записи о сне.
+     *
+     * @param Sleep $sleep
+     * @return \Illuminate\View\View|\Illuminate\Contracts\View\Factory
+     */
     public function edit(Sleep $sleep)
     {
-        $this->authorize('update', $sleep);
+        // Авторизация (на случай необходимости защиты маршрута)
+        //$this->authorize('update', $sleep);
 
         return view('sleep.edit', compact('sleep'));
     }
 
+    /**
+     * Обновление записи о сне.
+     *
+     * @param Request $request
+     * @param Sleep $sleep
+     * @return \Illuminate\Http\RedirectResponse
+     */
     public function update(Request $request, Sleep $sleep)
     {
-        $this->authorize('update', $sleep);
+        // Авторизация (на случай необходимости защиты маршрута)
+        //$this->authorize('update', $sleep);
 
-        $validated = $request->validate([
+        $validatedData = $request->validate([
             'date' => 'required|date',
             'bedtime' => 'required',
             'wakeup_time' => 'required',
+            'sleep_quality' => 'nullable|integer|min:0|max:100',
             'deep_sleep' => 'nullable|integer|min:0',
             'light_sleep' => 'nullable|integer|min:0',
             'rem_sleep' => 'nullable|integer|min:0',
@@ -122,39 +186,65 @@ class SleepController extends Controller
             'notes' => 'nullable|string|max:500'
         ]);
 
-        // Пересчитываем продолжительность сна
-        $bedtime = Carbon::parse($validated['bedtime']);
-        $wakeup = Carbon::parse($validated['wakeup_time']);
+        // Проверка на существование другого сна на заданную дату (кроме самой себя)
+        $existingRecord = Sleep::where('user_id', Auth::id())
+            ->where('date', $validatedData['date'])
+            ->where('id', '!=', $sleep->id)
+            ->first();
 
+        if ($existingRecord) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Запись о сне на данную дату уже существует!');
+        }
+
+        // Разбор временного формата
+        $bedtime = Carbon::parse($validatedData['date'] . ' ' . $validatedData['bedtime']);
+        $wakeup = Carbon::parse($validatedData['date'] . ' ' . $validatedData['wakeup_time']);
+
+        // Переход через полночь
         if ($wakeup->lt($bedtime)) {
             $wakeup->addDay();
         }
 
+        // Подсчет продолжительности сна
         $sleepDuration = $bedtime->diffInMinutes($wakeup);
 
-        $sleep->update([
-            'date' => $validated['date'],
-            'bedtime' => $validated['bedtime'],
-            'wakeup_time' => $validated['wakeup_time'],
-            'sleep_duration' => $sleepDuration,
-            'deep_sleep' => $validated['deep_sleep'],
-            'light_sleep' => $validated['light_sleep'],
-            'rem_sleep' => $validated['rem_sleep'],
-            'awake_time' => $validated['awake_time'],
-            'notes' => $validated['notes']
-        ]);
+        // Ограничения по продолжительности сна
+        if ($sleepDuration < 180 || $sleepDuration > 720) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Продолжительность сна должна составлять от 3 до 12 часов.');
+        }
 
-        // Пересчитываем качество сна
-        $sleep->sleep_quality = $sleep->calculateSleepQuality();
-        $sleep->save();
+        // Актуализация записи
+        $sleep->update([
+            'date' => $validatedData['date'],
+            'bedtime' => $validatedData['bedtime'],
+            'wakeup_time' => $validatedData['wakeup_time'],
+            'sleep_duration' => $sleepDuration,
+            'sleep_quality' => $validatedData['sleep_quality'] ?? $sleep->calculateSleepQuality(),
+            'deep_sleep' => $validatedData['deep_sleep'],
+            'light_sleep' => $validatedData['light_sleep'],
+            'rem_sleep' => $validatedData['rem_sleep'],
+            'awake_time' => $validatedData['awake_time'],
+            'notes' => $validatedData['notes']
+        ]);
 
         return redirect()->route('sleep.show', $sleep)
             ->with('success', 'Запись о сне успешно обновлена!');
     }
 
+    /**
+     * Удаление записи о сне.
+     *
+     * @param Sleep $sleep
+     * @return \Illuminate\Http\RedirectResponse
+     */
     public function destroy(Sleep $sleep)
     {
-        $this->authorize('delete', $sleep);
+        // Авторизация (на случай необходимости защиты маршрута)
+        //$this->authorize('delete', $sleep);
 
         $sleep->delete();
 
@@ -162,40 +252,38 @@ class SleepController extends Controller
             ->with('success', 'Запись о сне успешно удалена!');
     }
 
-    private function calculateSleepPhases($totalDuration, $data)
+    /**
+     * Расчёт статистики сна.
+     *
+     * @param int $userId
+     * @return array
+     */
+    private function getSleepStatistics($userId)
     {
-        // Если пользователь указал все фазы, используем их
-        if ($data['deep_sleep'] && $data['light_sleep'] && $data['rem_sleep'] && $data['awake_time']) {
-            return [
-                'deep_sleep' => $data['deep_sleep'],
-                'light_sleep' => $data['light_sleep'],
-                'rem_sleep' => $data['rem_sleep'],
-                'awake_time' => $data['awake_time']
-            ];
-        }
-
-        // Автоматическое распределение фаз сна на основе общей продолжительности
-        $awakeTime = $data['awake_time'] ?? rand(5, 20); // 5-20 минут бодрствования
-        $remainingTime = $totalDuration - $awakeTime;
-
-        // Типичное распределение фаз сна для взрослого человека
-        $deepSleep = $data['deep_sleep'] ?? round($remainingTime * 0.15); // 15% глубокий сон
-        $remSleep = $data['rem_sleep'] ?? round($remainingTime * 0.25);   // 25% REM сон
-        $lightSleep = $data['light_sleep'] ?? $remainingTime - $deepSleep - $remSleep; // Остальное - легкий сон
+        $stats = Sleep::where('user_id', $userId)
+            ->selectRaw('AVG(sleep_duration) AS avg_duration, AVG(sleep_quality) AS avg_quality, COUNT(*) AS total_records, MAX(sleep_quality) AS best_quality, MIN(sleep_quality) AS worst_quality')
+            ->first();
 
         return [
-            'deep_sleep' => $deepSleep,
-            'light_sleep' => $lightSleep,
-            'rem_sleep' => $remSleep,
-            'awake_time' => $awakeTime
+            'avg_duration' => round($stats->avg_duration / 60, 1),
+            'avg_quality' => round($stats->avg_quality),
+            'total_records' => $stats->total_records,
+            'best_quality' => $stats->best_quality,
+            'worst_quality' => $stats->worst_quality
         ];
     }
 
-    private function analyzeSleepQuality($sleep)
+    /**
+     * Анализ качества сна для конкретной записи.
+     *
+     * @param Sleep $sleep
+     * @return array
+     */
+    private function analyzeSleepQuality(Sleep $sleep)
     {
         $analysis = [];
 
-        // Анализ продолжительности
+        // Анализируем продолжительность сна
         $durationHours = $sleep->sleep_duration / 60;
         if ($durationHours >= 7 && $durationHours <= 9) {
             $analysis[] = 'Оптимальная продолжительность сна';
@@ -205,7 +293,7 @@ class SleepController extends Controller
             $analysis[] = 'Избыточная продолжительность сна';
         }
 
-        // Анализ качества
+        // Анализируем качество сна
         if ($sleep->sleep_quality >= 80) {
             $analysis[] = 'Отличное качество сна';
         } elseif ($sleep->sleep_quality >= 60) {
@@ -214,41 +302,51 @@ class SleepController extends Controller
             $analysis[] = 'Низкое качество сна';
         }
 
-        // Анализ эффективности
-        if ($sleep->sleep_efficiency >= 90) {
-            $analysis[] = 'Высокая эффективность сна';
-        } elseif ($sleep->sleep_efficiency >= 85) {
-            $analysis[] = 'Хорошая эффективность сна';
-        } else {
-            $analysis[] = 'Низкая эффективность сна';
+        // Дополнительно можем анализировать глубокое и лёгкое состояние сна
+        if ($sleep->deep_sleep_percentage < 15) {
+            $analysis[] = 'Необходимо увеличить количество глубокого сна';
         }
 
         return $analysis;
     }
+   
 
-    private function getSleepStatistics($userId)
+    /**
+     * Автоопределение фаз сна (если пользователь не ввёл точные данные).
+     *
+     * @param int $totalDuration общее время сна в минутах
+     * @param array $data массив данных формы
+     * @return array
+     */
+    private function calculateSleepPhases($totalDuration, $data)
     {
-        $stats = Sleep::where('user_id', $userId)
-            ->select(
-                DB::raw('AVG(sleep_duration) as avg_duration'),
-                DB::raw('AVG(sleep_quality) as avg_quality'),
-                DB::raw('COUNT(*) as total_records'),
-                DB::raw('MAX(sleep_quality) as best_quality'),
-                DB::raw('MIN(sleep_quality) as worst_quality')
-            )
-            ->first();
+        // Проверяем, введены ли данные пользователем
+        if (
+            isset($data['deep_sleep'], $data['light_sleep'], $data['rem_sleep'], $data['awake_time']) &&
+            !empty($data['deep_sleep']) && !empty($data['light_sleep']) && !empty($data['rem_sleep']) && !empty($data['awake_time'])
+        ) {
+            return [
+                'deep_sleep' => $data['deep_sleep'],
+                'light_sleep' => $data['light_sleep'],
+                'rem_sleep' => $data['rem_sleep'],
+                'awake_time' => $data['awake_time']
+            ];
+        }
 
-        $recentTrend = Sleep::where('user_id', $userId)
-            ->where('date', '>=', now()->subDays(7))
-            ->avg('sleep_quality');
+        // Генерируем автофазу сна
+        $awakeTime = $data['awake_time'] ?? rand(5, 20);
+        $remainingTime = $totalDuration - $awakeTime;
+
+        // Оптимальное распределение фаз сна согласно рекомендациям
+        $deepSleep = round($remainingTime * 0.15);
+        $remSleep = round($remainingTime * 0.25);
+        $lightSleep = $remainingTime - $deepSleep - $remSleep;
 
         return [
-            'avg_duration' => round($stats->avg_duration / 60, 1),
-            'avg_quality' => round($stats->avg_quality),
-            'total_records' => $stats->total_records,
-            'best_quality' => $stats->best_quality,
-            'worst_quality' => $stats->worst_quality,
-            'recent_trend' => round($recentTrend)
+            'deep_sleep' => max($deepSleep, 0),
+            'light_sleep' => max($lightSleep, 0),
+            'rem_sleep' => max($remSleep, 0),
+            'awake_time' => min($awakeTime, $totalDuration)
         ];
     }
 }

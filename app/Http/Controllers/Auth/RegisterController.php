@@ -28,6 +28,25 @@ class RegisterController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
+            'privacy_policy' => 'required|accepted', // Добавленная валидация для галочки
+        ], [
+            'name.required' => 'Поле имя обязательно для заполнения.',
+            'name.string' => 'Имя должно быть строкой.',
+            'name.max' => 'Имя не должно превышать 255 символов.',
+
+            'email.required' => 'Поле email обязательно для заполнения.',
+            'email.string' => 'Email должен быть строкой.',
+            'email.email' => 'Введите корректный email адрес.',
+            'email.max' => 'Email не должен превышать 255 символов.',
+            'email.unique' => 'Пользователь с таким email уже существует.',
+
+            'password.required' => 'Поле пароль обязательно для заполнения.',
+            'password.string' => 'Пароль должен быть строкой.',
+            'password.min' => 'Пароль должен содержать минимум 8 символов.',
+            'password.confirmed' => 'Пароли не совпадают.',
+
+            'privacy_policy.required' => 'Необходимо согласие на обработку персональных данных.',
+            'privacy_policy.accepted' => 'Необходимо согласие на обработку персональных данных.',
         ]);
 
         if ($validator->fails()) {

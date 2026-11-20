@@ -46,7 +46,7 @@
                             </a>
                         </div>
                         <div class="col-md-3 col-6">
-                            <a href="{{ route('recommendations') }}" class="btn btn-info w-100 py-3 hover-lift d-flex flex-column align-items-center text-white">
+                            <a href="{{ route('recommendations.index') }}" class="btn btn-info w-100 py-3 hover-lift d-flex flex-column align-items-center text-white">
                                 <i class="fas fa-heart fa-2x mb-2"></i>
                                 <span>Рекомендации</span>
                             </a>
@@ -103,7 +103,7 @@
                     @else
                         <div class="text-center py-4">
                             <i class="fas fa-bed fa-3x text-muted mb-3"></i>
-                            <p class="text-muted mb-3">Нет данных о сне за сегодня</p>
+                           
                             <a href="{{ route('sleep.create') }}" class="btn btn-primary">
                                 <i class="fas fa-plus me-2"></i>Добавить запись
                             </a>
@@ -151,7 +151,7 @@
                     @else
                         <div class="text-center py-4">
                             <i class="fas fa-running fa-3x text-muted mb-3"></i>
-                            <p class="text-muted mb-3">Нет данных об активности за сегодня</p>
+                            
                             <a href="{{ route('activity.create') }}" class="btn btn-success">
                                 <i class="fas fa-plus me-2"></i>Добавить активность
                             </a>
@@ -177,26 +177,7 @@
                         </div>
                     </div>
 
-                    <div class="row text-center mb-4">
-                        <div class="col-4 mb-3">
-                            <div class="stat-card">
-                                <div class="h4 mb-1 fw-bold">{{ $sleepStats['avg_duration'] }}ч</div>
-                                <small>Длительность</small>
-                            </div>
-                        </div>
-                        <div class="col-4 mb-3">
-                            <div class="stat-card">
-                                <div class="h4 mb-1 fw-bold">{{ $sleepStats['avg_quality'] }}%</div>
-                                <small>Качество</small>
-                            </div>
-                        </div>
-                        <div class="col-4 mb-3">
-                            <div class="stat-card">
-                                <div class="h4 mb-1 fw-bold">{{ round($sleepStats['consistency']) }}%</div>
-                                <small>Регулярность</small>
-                            </div>
-                        </div>
-                    </div>
+                   
 
                     <canvas id="sleepChart" height="200"></canvas>
                 </div>
@@ -216,26 +197,7 @@
                         </div>
                     </div>
 
-                    <div class="row text-center mb-4">
-                        <div class="col-4 mb-3">
-                            <div class="stat-card">
-                                <div class="h4 mb-1 fw-bold">{{ number_format($activityStats['avg_steps']) }}</div>
-                                <small>Шаги</small>
-                            </div>
-                        </div>
-                        <div class="col-4 mb-3">
-                            <div class="stat-card">
-                                <div class="h4 mb-1 fw-bold">{{ $activityStats['avg_calories'] }}</div>
-                                <small>Калории</small>
-                            </div>
-                        </div>
-                        <div class="col-4 mb-3">
-                            <div class="stat-card">
-                                <div class="h4 mb-1 fw-bold">{{ $activityStats['active_days'] }}/7</div>
-                                <small>Активные дни</small>
-                            </div>
-                        </div>
-                    </div>
+                    
 
                     <canvas id="activityChart" height="200"></canvas>
                 </div>
@@ -274,7 +236,7 @@
                             @endforeach
                         </div>
                         <div class="text-center mt-3">
-                            <a href="{{ route('recommendations') }}" class="btn btn-outline-primary">
+                            <a href="{{ route('recommendations.index') }}" class="btn btn-outline-primary">
                                 <i class="fas fa-arrow-right me-2"></i>Все рекомендации
                             </a>
                         </div>
@@ -293,32 +255,77 @@
             type: 'line',
             data: {
                 labels: {!! json_encode($sleepWeek->pluck('date')->map(function($date) {
-            return \Carbon\Carbon::parse($date)->format('d.m');
-        })) !!},
-                datasets: [{
-                    label: 'Качество сна (%)',
-                    data: {!! json_encode($sleepWeek->pluck('sleep_quality')) !!},
-                    borderColor: '#6366f1',
-                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                    tension: 0.4,
-                    fill: true,
-                    borderWidth: 3
-                }]
+                    return \Carbon\Carbon::parse($date)->format('d.m');
+                })) !!},
+                datasets: [
+                    {
+                        label: 'Качество сна (%)',
+                        data: {!! json_encode($sleepWeek->pluck('sleep_quality')) !!},
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        borderWidth: 3,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Длительность (часы)',
+                        data: {!! json_encode($sleepWeek->map(function($sleep) {
+                            return round($sleep->sleep_duration / 60, 1);
+                        })) !!},
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        borderWidth: 3,
+                        yAxisID: 'y1'
+                    }
+                ]
             },
             options: {
                 responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
                 plugins: {
                     legend: {
-                        display: false
+                        display: true,
+                        position: 'top'
                     }
                 },
                 scales: {
                     y: {
-                        beginAtZero: true,
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Качество сна (%)'
+                        },
+                        min: 0,
                         max: 100,
                         ticks: {
                             callback: function(value) {
                                 return value + '%';
+                            }
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Длительность (часы)'
+                        },
+                        min: 0,
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value + 'ч';
                             }
                         }
                     }
@@ -332,8 +339,8 @@
             type: 'bar',
             data: {
                 labels: {!! json_encode($activityWeek->pluck('date')->map(function($date) {
-            return \Carbon\Carbon::parse($date)->format('d.m');
-        })) !!},
+                    return \Carbon\Carbon::parse($date)->format('d.m');
+                })) !!},
                 datasets: [{
                     label: 'Шаги',
                     data: {!! json_encode($activityWeek->pluck('steps')) !!},
@@ -390,14 +397,20 @@
 
         function updateCharts(data) {
             // Обновляем график сна
-            sleepChart.data.labels = data.labels;
-            sleepChart.data.datasets[0].data = Object.values(data.sleep).map(s => s.quality);
+            sleepChart.data.labels = data.sleep.labels;
+            sleepChart.data.datasets[0].data = data.sleep.quality;
+            sleepChart.data.datasets[1].data = data.sleep.duration;
             sleepChart.update();
 
             // Обновляем график активности
-            activityChart.data.labels = data.labels;
-            activityChart.data.datasets[0].data = Object.values(data.activity).map(a => a.steps);
+            activityChart.data.labels = data.activity.labels;
+            activityChart.data.datasets[0].data = data.activity.steps;
             activityChart.update();
+        }
+
+        // Вспомогательная функция для округления
+        function round(value, decimals = 1) {
+            return Number(Math.round(value + 'e' + decimals) + 'e-' + decimals);
         }
     </script>
 @endsection

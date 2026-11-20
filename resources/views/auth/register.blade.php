@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends('layouts.app1')
 
 @section('content')
     <div class="container py-5">
@@ -43,6 +43,22 @@
                         <div class="mb-3">
                             <input id="password-confirm" type="password" class="form-control form-control-lg"
                                    name="password_confirmation" required autocomplete="new-password" placeholder="Подтвердите пароль">
+                        </div>
+
+                        <!-- Галочка согласия на обработку персональных данных -->
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input @error('privacy_policy') is-invalid @enderror"
+                                       type="checkbox" name="privacy_policy" id="privacy_policy"
+                                       {{ old('privacy_policy') ? 'checked' : '' }} required>
+                                <label class="form-check-label text-start" for="privacy_policy">
+                                    Я согласен на обработку моих персональных данных
+                                    в соответствии с <a href="#" class="text-primary">Политикой конфиденциальности</a>
+                                </label>
+                                @error('privacy_policy')
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
+                                @enderror
+                            </div>
                         </div>
 
                         <div class="d-grid gap-2">
